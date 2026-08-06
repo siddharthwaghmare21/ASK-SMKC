@@ -1,24 +1,86 @@
 import os
 import shutil
 from typing import Any, List
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, BackgroundTasks
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from datetime import date
 import uuid
+import logging
 
 from app.api import deps
 from app.models.user import User
-from app.models.document import Document, DocumentType, Language, ProcessingStatus
-from app.schemas.document import Document as DocumentSchema, DocumentCreate
+from app.models.document import Document, DocumentType, Language, ProcessingStatus, DocumentChunk
+from app.schemas.document import Document as DocumentSchema, DocumentCreate, DocumentUpdate
+from app.services.document_processor import process_document
+from app.services.embedding_service import generate_embeddings_and_store
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 UPLOAD_DIR = "storage/documents"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+def process_and_store_document(document_id: int, file_path: str):
+    """
+    Background task to extract text, chunk it, and generate/store embeddings.
+    """
+    try:
+        # We need a new DB session for background task
+        from app.db.session import SessionLocal
+        db = SessionLocal()
+        
+        # 1. Update status to processing
+        doc = db.query(Document).filter(Document.id == document_id).first()
+        if not doc:
+            db.close()
+            return
+            
+        doc.processing_status = ProcessingStatus.processing
+        db.commit()
+        
+        # 2. Extract and chunk text
+        logger.info(f"Processing document {document_id}")
+        chunks = process_document(file_path)
+        
+        # 3. Generate embeddings and store in Qdrant
+        metadata = {
+            "id": doc.id,
+            "document_name": doc.document_name,
+            "department_id": doc.department_id,
+            "document_type": doc.document_type.value,
+            "language": doc.language.value
+        }
+        
+        generate_embeddings_and_store(chunks, metadata)
+        
+        # 4. Store chunks in DB
+        for i, chunk in enumerate(chunks):
+            db_chunk = DocumentChunk(
+                document_id=doc.id,
+                chunk_index=i,
+                section_number=chunk.get("section", "Unknown"),
+                page_numbers=chunk.get("pages", []),
+                text_content=chunk.get("text", "")
+            )
+            db.add(db_chunk)
+        
+        # 5. Update status to completed
+        doc.processing_status = ProcessingStatus.completed
+        db.commit()
+        logger.info(f"Successfully processed document {document_id}")
+        
+    except Exception as e:
+        logger.error(f"Error processing document {document_id}: {e}")
+        doc.processing_status = ProcessingStatus.failed
+        db.commit()
+    finally:
+        db.close()
+
+
 @router.post("/upload", response_model=DocumentSchema)
 def upload_document(
+    background_tasks: BackgroundTasks,
     document_name: str = Form(...),
     department_id: int = Form(...),
     document_type: DocumentType = Form(...),
@@ -61,8 +123,8 @@ def upload_document(
     db.commit()
     db.refresh(document)
     
-    # Trigger background processing task here (Phase 4)
-    # e.g., background_tasks.add_task(process_pdf, document.id)
+    # Trigger background processing task here
+    background_tasks.add_task(process_and_store_document, document.id, file_path)
     
     return document
 
@@ -114,6 +176,28 @@ def download_document(
         filename=document.document_name + ".pdf",
         media_type="application/pdf"
     )
+
+@router.patch("/{id}", response_model=DocumentSchema)
+def update_document(
+    id: int,
+    document_in: DocumentUpdate,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+) -> Any:
+    """
+    Update document metadata.
+    """
+    document = db.query(Document).filter(Document.id == id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+        
+    update_data = document_in.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(document, field, value)
+        
+    db.commit()
+    db.refresh(document)
+    return document
 
 @router.delete("/{id}", response_model=DocumentSchema)
 def delete_document(

@@ -1,11 +1,25 @@
 from app.db.session import SessionLocal
 from app.models.user import User, UserRole, AuthProvider
 from app.models.role import Role
+from app.models.department import Department
 from app.core.security import get_password_hash
 
 def seed_db():
     db = SessionLocal()
     try:
+        # Create default department
+        dept = db.query(Department).filter(Department.id == 1).first()
+        if not dept:
+            dept = Department(
+                id=1,
+                name="General Administration",
+                description="Default department for general documents"
+            )
+            db.add(dept)
+            db.commit()
+            db.refresh(dept)
+            print("Default department created: General Administration")
+
         # Create default admin role
         admin_role = db.query(Role).filter(Role.name == "admin").first()
         if not admin_role:
