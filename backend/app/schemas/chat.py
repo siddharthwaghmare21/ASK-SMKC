@@ -21,6 +21,9 @@ class ChatMessageResponse(ChatMessageBase):
 class ChatSessionCreate(BaseModel):
     title: Optional[str] = "New Session"
 
+class ChatSessionUpdate(BaseModel):
+    title: str
+
 class ChatSessionResponse(BaseModel):
     id: int
     user_id: int

@@ -8,18 +8,42 @@ def clean_text(text: str) -> str:
     text = re.sub(r'\s+', ' ', text)
     return text.strip()
 
+import numpy as np
+import easyocr
+
 def extract_text_from_pdf(file_path: str) -> List[Dict[str, Any]]:
     """
     Extracts text page by page from a PDF using PyMuPDF.
+    If the text is too short (likely scanned), falls back to EasyOCR.
     Returns a list of dicts with page number and text.
     """
     pages = []
     try:
         doc = fitz.open(file_path)
+        reader = None
+        
         for page_num in range(len(doc)):
             page = doc.load_page(page_num)
             text = page.get_text("text")
             cleaned_text = clean_text(text)
+            
+            # Fallback to OCR if less than 50 characters are extracted
+            if len(cleaned_text) < 50:
+                print(f"Page {page_num + 1} of {file_path} seems scanned. Using OCR...")
+                if reader is None:
+                    reader = easyocr.Reader(['mr', 'hi', 'en'], gpu=False)
+                
+                # Render page to an image (200 DPI is usually sufficient for OCR)
+                pix = page.get_pixmap(dpi=200)
+                # Convert to numpy array
+                img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.h, pix.w, pix.n)
+                if pix.n == 4: # Convert RGBA to RGB
+                    img = img[:, :, :3]
+                    
+                result = reader.readtext(img, detail=0)
+                ocr_text = " ".join(result)
+                cleaned_text = clean_text(ocr_text)
+                
             pages.append({
                 "page_number": page_num + 1,
                 "text": cleaned_text

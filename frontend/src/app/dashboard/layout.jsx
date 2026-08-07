@@ -3,7 +3,7 @@
 import { useAuth } from '../../context/AuthContext';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { MessageSquare, FileText, Settings, LogOut, LayoutDashboard } from 'lucide-react';
+import { MessageSquare, FileText, Settings, LogOut, LayoutDashboard, Building2, Shield } from 'lucide-react';
 import { useEffect } from 'react';
 import { ThemeToggle } from '../../components/ThemeToggle';
 
@@ -25,6 +25,8 @@ export default function DashboardLayout({ children }) {
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'AI Assistant', href: '/dashboard/chat', icon: MessageSquare },
     { name: 'Documents', href: '/dashboard/documents', icon: FileText },
+    { name: 'Departments', href: '/dashboard/departments', icon: Building2 },
+    { name: 'Audit Logs', href: '/dashboard/audit', icon: Shield },
     { name: 'Settings', href: '/dashboard/settings', icon: Settings },
   ];
 

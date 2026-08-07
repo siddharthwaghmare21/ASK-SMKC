@@ -13,18 +13,25 @@ export default function DashboardPage() {
     total_departments: 0,
     total_queries: 0
   });
+  const [chartData, setChartData] = useState([]);
 
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const response = await api.get('/analytics/stats');
-        setStats(response.data);
+        const [statsRes, chartRes] = await Promise.all([
+          api.get('/analytics/stats'),
+          api.get('/analytics/chart-data')
+        ]);
+        setStats(statsRes.data);
+        setChartData(chartRes.data);
       } catch (error) {
-        console.error("Failed to fetch stats", error);
+        console.error("Failed to fetch dashboard data", error);
       }
     };
     fetchStats();
   }, []);
+
+  const maxChartCount = Math.max(...chartData.map(d => d.count), 5); // Minimum height scale of 5
 
   const statCards = [
     { title: 'Total Users', value: stats.total_users, icon: Users, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-900/30' },
@@ -54,11 +61,66 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-8">
-        <h2 className="text-xl font-semibold text-slate-800 dark:text-slate-200 mb-4">System Status</h2>
-        <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 w-max px-4 py-2 rounded-full text-sm font-medium border border-emerald-100 dark:border-emerald-900/50">
-          <div className="w-2 h-2 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse" />
-          All AI Systems Operational
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-8">
+          <h2 className="text-xl font-semibold text-slate-800 dark:text-slate-200 mb-6">AI Queries (Last 7 Days)</h2>
+          
+          <div className="h-64 flex items-end gap-2 sm:gap-6 pt-4 border-b border-slate-100 dark:border-slate-800 relative">
+            {chartData.length === 0 && (
+              <div className="absolute inset-0 flex items-center justify-center text-slate-400">Loading chart data...</div>
+            )}
+            
+            {chartData.map((point, index) => {
+              const heightPercent = Math.max((point.count / maxChartCount) * 100, 2); // Minimum 2% height for visibility
+              const dateObj = new Date(point.date);
+              const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'short' });
+              
+              return (
+                <div key={index} className="flex-1 flex flex-col justify-end items-center group">
+                  <div className="relative w-full flex justify-center flex-col items-center">
+                    {/* Tooltip */}
+                    <div className="opacity-0 group-hover:opacity-100 transition-opacity absolute -top-10 bg-slate-800 text-white text-xs font-bold py-1 px-2 rounded pointer-events-none z-10 whitespace-nowrap">
+                      {point.count} queries
+                    </div>
+                    
+                    {/* Bar */}
+                    <div 
+                      className="w-full max-w-[40px] bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-500 rounded-t-sm transition-all duration-300"
+                      style={{ height: `${heightPercent}%`, minHeight: '4px' }}
+                    ></div>
+                  </div>
+                  
+                  {/* Label */}
+                  <div className="mt-3 text-xs font-medium text-slate-500 dark:text-slate-400">
+                    {dayName}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-8">
+          <h2 className="text-xl font-semibold text-slate-800 dark:text-slate-200 mb-4">System Status</h2>
+          <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 w-max px-4 py-2 rounded-full text-sm font-medium border border-emerald-100 dark:border-emerald-900/50 mb-6">
+            <div className="w-2 h-2 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse" />
+            All Systems Operational
+          </div>
+          
+          <div className="space-y-4">
+            <div className="flex justify-between items-center py-2 border-b border-slate-50 dark:border-slate-800/50">
+              <span className="text-sm text-slate-500 dark:text-slate-400">Database Connection</span>
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Healthy</span>
+            </div>
+            <div className="flex justify-between items-center py-2 border-b border-slate-50 dark:border-slate-800/50">
+              <span className="text-sm text-slate-500 dark:text-slate-400">Vector Search (Qdrant)</span>
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Healthy</span>
+            </div>
+            <div className="flex justify-between items-center py-2">
+              <span className="text-sm text-slate-500 dark:text-slate-400">LLM Inference (Ollama)</span>
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Healthy</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>

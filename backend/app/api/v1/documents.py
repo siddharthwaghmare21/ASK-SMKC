@@ -11,6 +11,7 @@ import logging
 from app.api import deps
 from app.models.user import User
 from app.models.document import Document, DocumentType, Language, ProcessingStatus, DocumentChunk
+from app.models.audit import AuditLog
 from app.schemas.document import Document as DocumentSchema, DocumentCreate, DocumentUpdate
 from app.services.document_processor import process_document
 from app.services.embedding_service import generate_embeddings_and_store
@@ -123,6 +124,17 @@ def upload_document(
     db.commit()
     db.refresh(document)
     
+    # Audit log
+    audit_log = AuditLog(
+        user_id=current_user.id,
+        action="UPLOAD_DOCUMENT",
+        entity_type="Document",
+        entity_id=str(document.id),
+        details={"document_name": document.document_name, "department_id": document.department_id}
+    )
+    db.add(audit_log)
+    db.commit()
+    
     # Trigger background processing task here
     background_tasks.add_task(process_and_store_document, document.id, file_path)
     
@@ -130,6 +142,7 @@ def upload_document(
 
 @router.get("", response_model=List[DocumentSchema])
 def list_documents(
+    department_id: int = None,
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(deps.get_db),
@@ -138,7 +151,10 @@ def list_documents(
     """
     Retrieve documents.
     """
-    documents = db.query(Document).offset(skip).limit(limit).all()
+    query = db.query(Document)
+    if department_id is not None:
+        query = query.filter(Document.department_id == department_id)
+    documents = query.offset(skip).limit(limit).all()
     return documents
 
 @router.get("/{id}", response_model=DocumentSchema)
@@ -213,6 +229,17 @@ def delete_document(
         raise HTTPException(status_code=404, detail="Document not found")
         
     db.delete(document)
+    db.commit()
+    
+    # Audit log
+    audit_log = AuditLog(
+        user_id=current_user.id,
+        action="DELETE_DOCUMENT",
+        entity_type="Document",
+        entity_id=str(document.id),
+        details={"document_name": document.document_name}
+    )
+    db.add(audit_log)
     db.commit()
     
     # Ideally delete physical file or keep for audit

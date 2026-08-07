@@ -3,7 +3,7 @@ from pydantic import AnyHttpUrl, EmailStr, validator
 from typing import List, Optional, Union
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "Municipal AI Knowledge Management System (MAIKMS)"
+    PROJECT_NAME: str = "ASK SMKC"
     VERSION: str = "1.0.0"
     API_V1_STR: str = "/api/v1"
     
@@ -19,9 +19,8 @@ class Settings(BaseSettings):
     
     @property
     def SQLALCHEMY_DATABASE_URI(self) -> str:
-        # Fallback to SQLite if Docker/MySQL is not available for local dev
-        return "sqlite:///./maikms.db"
-        
+        return f"mysql+pymysql://{self.MYSQL_USER}:{self.MYSQL_PASSWORD}@{self.MYSQL_HOST}:{self.MYSQL_PORT}/{self.MYSQL_DB}"
+
     # Security
     SECRET_KEY: str = "CHANGE_THIS_SECRET_KEY_IN_PRODUCTION"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8  # 8 days

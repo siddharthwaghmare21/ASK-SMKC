@@ -23,6 +23,7 @@ class SettingResponse(BaseModel):
 class AuditLogResponse(BaseModel):
     id: int
     user_id: int
+    user_name: str
     action: str
     details: str
     created_at: str
@@ -60,16 +61,24 @@ def get_audit_logs(
     db: Session = Depends(deps.get_db),
     current_user: User = Depends(deps.RoleChecker(["Admin"])),
 ) -> Any:
-    logs = db.query(AuditLog).order_by(AuditLog.created_at.desc()).offset(skip).limit(limit).all()
+    # Join AuditLog with User
+    logs = (
+        db.query(AuditLog, User)
+        .outerjoin(User, AuditLog.user_id == User.id)
+        .order_by(AuditLog.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
     
-    # Format created_at to string for Pydantic response
     response_logs = []
-    for log in logs:
+    for log, user in logs:
         log_dict = {
             "id": log.id,
             "user_id": log.user_id,
+            "user_name": user.full_name if user else "System",
             "action": log.action,
-            "details": log.details,
+            "details": str(log.details) if log.details else "",
             "created_at": str(log.created_at)
         }
         response_logs.append(log_dict)

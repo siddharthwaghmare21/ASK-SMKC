@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.api import deps
 from app.models.user import User
 from app.models.chat import ChatSession, ChatMessage
-from app.schemas.chat import ChatSessionCreate, ChatSessionResponse, ChatMessageCreate, ChatMessageResponse
+from app.schemas.chat import ChatSessionCreate, ChatSessionResponse, ChatSessionUpdate, ChatMessageCreate, ChatMessageResponse
 from app.services import rag_service
 
 router = APIRouter()
@@ -65,6 +65,95 @@ def send_message(
     )
     
     # Save AI message
+    ai_msg = ChatMessage(
+        session_id=session.id,
+        role="ai",
+        content=ai_content,
+        citations=citations
+    )
+    db.add(ai_msg)
+    db.commit()
+    db.refresh(ai_msg)
+    
+    return ai_msg
+
+@router.get("/sessions/{session_id}/messages", response_model=List[ChatMessageResponse])
+def get_session_messages(
+    session_id: int,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+) -> Any:
+    """Get all messages for a specific session."""
+    session = db.query(ChatSession).filter(ChatSession.id == session_id, ChatSession.user_id == current_user.id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    messages = db.query(ChatMessage).filter(ChatMessage.session_id == session.id).order_by(ChatMessage.id.asc()).all()
+    return messages
+
+@router.delete("/sessions/{session_id}")
+def delete_session(
+    session_id: int,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+) -> Any:
+    """Delete a chat session and all its messages."""
+    session = db.query(ChatSession).filter(ChatSession.id == session_id, ChatSession.user_id == current_user.id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    db.delete(session)
+    db.commit()
+    return {"status": "success"}
+
+@router.put("/sessions/{session_id}", response_model=ChatSessionResponse)
+def update_session(
+    session_id: int,
+    session_in: ChatSessionUpdate,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+) -> Any:
+    """Update a chat session title."""
+    session = db.query(ChatSession).filter(ChatSession.id == session_id, ChatSession.user_id == current_user.id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    session.title = session_in.title
+    db.commit()
+    db.refresh(session)
+    return session
+
+@router.put("/sessions/{session_id}/messages/{message_id}", response_model=ChatMessageResponse)
+def edit_message(
+    session_id: int,
+    message_id: int,
+    message_in: ChatMessageCreate,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+) -> Any:
+    """Edit a user message and generate a new AI response. This deletes all subsequent messages."""
+    session = db.query(ChatSession).filter(ChatSession.id == session_id, ChatSession.user_id == current_user.id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    user_msg = db.query(ChatMessage).filter(ChatMessage.id == message_id, ChatMessage.session_id == session.id).first()
+    if not user_msg or user_msg.role != "user":
+        raise HTTPException(status_code=404, detail="User message not found")
+        
+    # Delete all messages that came after this message
+    db.query(ChatMessage).filter(ChatMessage.session_id == session.id, ChatMessage.id > message_id).delete()
+    
+    # Update the user message content
+    user_msg.content = message_in.content
+    db.commit()
+    
+    # Generate new AI Answer using RAG Pipeline
+    ai_content, citations = rag_service.generate_answer(
+        query=message_in.content, 
+        department_id=message_in.department_id
+    )
+    
+    # Save new AI message
     ai_msg = ChatMessage(
         session_id=session.id,
         role="ai",

@@ -23,4 +23,4 @@ app.include_router(api_router, prefix=settings.API_V1_STR)
 
 @app.get("/api/v1/health")
 def health_check():
-    return {"status": "ok", "message": "MAIKMS Backend is healthy"}
+    return {"status": "ok", "message": "ASK SMKC Backend is healthy"}

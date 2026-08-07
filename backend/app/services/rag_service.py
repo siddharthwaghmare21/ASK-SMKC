@@ -10,7 +10,7 @@ OLLAMA_API_URL = "http://localhost:11434/api/generate"
 MODEL_NAME = "qwen2.5:7b"
 
 SYSTEM_PROMPT = """
-You are MAIKMS, the Municipal AI Knowledge Management System.
+You are ASK SMKC, the Municipal AI Knowledge Management System.
 You are an expert assistant for Municipal Corporation operations.
 
 STRICT RULES:
@@ -43,12 +43,12 @@ def retrieve_context(query: str, top_k: int = 5, department_id: int = None) -> L
             ]
         )
         
-    search_result = qdrant_client.search(
+    search_result = qdrant_client.query_points(
         collection_name=settings.QDRANT_COLLECTION,
-        query_vector=query_vector,
+        query=query_vector,
         query_filter=query_filter,
         limit=top_k
-    )
+    ).points
     
     chunks = []
     for hit in search_result:
@@ -76,7 +76,7 @@ def query_ollama(prompt: str) -> str:
         "temperature": 0.1
     }
     try:
-        response = requests.post(OLLAMA_API_URL, json=payload, timeout=60)
+        response = requests.post(OLLAMA_API_URL, json=payload, timeout=300)
         response.raise_for_status()
         return response.json().get("response", "")
     except requests.exceptions.RequestException as e:

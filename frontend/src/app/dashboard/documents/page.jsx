@@ -3,15 +3,22 @@
 import { useState, useRef, useEffect } from 'react';
 import { UploadCloud, File, Trash2, ShieldCheck, Loader2, CheckCircle2, AlertCircle, X, Edit2, Eye } from 'lucide-react';
 import api from '../../../utils/api';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 export default function DocumentsPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const departmentId = searchParams.get('department');
+  
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [documents, setDocuments] = useState([]);
+  const [departmentsList, setDepartmentsList] = useState([]);
   const [metadata, setMetadata] = useState({
     document_name: '',
     document_type: 'Act',
-    language: 'English'
+    language: 'English',
+    department_id: departmentId ? parseInt(departmentId) : 1
   });
   const [editingDoc, setEditingDoc] = useState(null);
   const [toast, setToast] = useState(null);
@@ -24,7 +31,8 @@ export default function DocumentsPage() {
 
   const fetchDocs = async () => {
     try {
-      const res = await api.get('/documents');
+      const endpoint = departmentId ? `/documents?department_id=${departmentId}` : '/documents';
+      const res = await api.get(endpoint);
       setDocuments(res.data);
     } catch (e) {
       console.error("Failed to fetch documents", e);
@@ -33,6 +41,18 @@ export default function DocumentsPage() {
 
   useEffect(() => {
     fetchDocs();
+  }, [departmentId]);
+
+  useEffect(() => {
+    const fetchDeps = async () => {
+      try {
+        const res = await api.get('/departments/');
+        setDepartmentsList(res.data);
+      } catch (e) {
+        console.error("Failed to fetch departments list", e);
+      }
+    };
+    fetchDeps();
   }, []);
 
   const handleUpload = async (e) => {
@@ -45,7 +65,7 @@ export default function DocumentsPage() {
     formData.append('document_name', metadata.document_name);
     formData.append('document_type', metadata.document_type);
     formData.append('language', metadata.language);
-    formData.append('department_id', 1); // Default to General Administration
+    formData.append('department_id', metadata.department_id);
 
     try {
       await api.post('/documents/upload', formData, {
@@ -271,13 +291,32 @@ export default function DocumentsPage() {
         {/* Document List */}
         <div className="lg:col-span-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm flex flex-col h-full overflow-hidden">
           <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 flex justify-between items-center">
-            <h2 className="font-semibold text-slate-800 dark:text-slate-200">Indexed Documents</h2>
+            <h2 className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-4">
+              Indexed Documents
+              <select 
+                className="ml-2 px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-700 dark:text-slate-300 outline-none focus:ring-2 focus:ring-blue-500 font-normal"
+                value={departmentId || ""}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val) {
+                    router.push(`/dashboard/documents?department=${val}`);
+                  } else {
+                    router.push('/dashboard/documents');
+                  }
+                }}
+              >
+                <option value="">All Departments</option>
+                {departmentsList.map(dep => (
+                  <option key={dep.id} value={dep.id}>{dep.name}</option>
+                ))}
+              </select>
+            </h2>
             <span className="text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-full">{documents.length} Total</span>
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
             {documents.length === 0 ? (
               <div className="text-center py-12 text-slate-500 dark:text-slate-400">
-                No documents uploaded yet.
+                {departmentId ? "No documents added in this specific department yet." : "No documents uploaded yet."}
               </div>
             ) : (
               documents.map((doc) => (
