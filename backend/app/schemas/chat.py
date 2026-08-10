@@ -26,7 +26,7 @@ class ChatSessionUpdate(BaseModel):
 
 class ChatSessionResponse(BaseModel):
     id: int
-    user_id: int
+    user_id: Optional[int] = None
     title: str
     created_at: datetime
     updated_at: datetime

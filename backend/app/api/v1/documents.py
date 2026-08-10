@@ -90,7 +90,7 @@ def upload_document(
     description: str = Form(None),
     file: UploadFile = File(...),
     db: Session = Depends(deps.get_db),
-    current_user: User = Depends(deps.get_current_active_user),
+    current_user: User = Depends(deps.RoleChecker(["admin", "hod"])),
 ) -> Any:
     """
     Upload a new PDF document.
@@ -146,7 +146,7 @@ def list_documents(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(deps.get_db),
-    current_user: User = Depends(deps.get_current_active_user),
+    current_user: User = Depends(deps.RoleChecker(["admin", "hod"])),
 ) -> Any:
     """
     Retrieve documents.
@@ -161,7 +161,7 @@ def list_documents(
 def get_document(
     id: int,
     db: Session = Depends(deps.get_db),
-    current_user: User = Depends(deps.get_current_active_user),
+    current_user: User = Depends(deps.RoleChecker(["admin", "hod"])),
 ) -> Any:
     """
     Get document by ID.
@@ -175,7 +175,7 @@ def get_document(
 def download_document(
     id: int,
     db: Session = Depends(deps.get_db),
-    current_user: User = Depends(deps.get_current_active_user),
+    current_user: User = Depends(deps.RoleChecker(["admin", "hod"])),
 ) -> Any:
     """
     Download a document PDF by ID.
@@ -198,7 +198,7 @@ def update_document(
     id: int,
     document_in: DocumentUpdate,
     db: Session = Depends(deps.get_db),
-    current_user: User = Depends(deps.get_current_active_user),
+    current_user: User = Depends(deps.RoleChecker(["admin", "hod"])),
 ) -> Any:
     """
     Update document metadata.
@@ -219,7 +219,7 @@ def update_document(
 def delete_document(
     id: int,
     db: Session = Depends(deps.get_db),
-    current_user: User = Depends(deps.get_current_active_user),
+    current_user: User = Depends(deps.RoleChecker(["admin", "hod"])),
 ) -> Any:
     """
     Soft delete a document (or hard delete).

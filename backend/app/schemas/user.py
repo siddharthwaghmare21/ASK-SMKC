@@ -11,6 +11,7 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str
+    role_name: Optional[str] = "user"
 
 class UserUpdate(UserBase):
     password: Optional[str] = None
@@ -25,4 +26,4 @@ class UserInDBBase(UserBase):
     model_config = {"from_attributes": True}
 
 class User(UserInDBBase):
-    pass
+    role: Optional[str] = None

@@ -16,8 +16,7 @@ router = APIRouter()
 def get_departments(
     skip: int = 0,
     limit: int = 100,
-    db: Session = Depends(deps.get_db),
-    current_user: User = Depends(deps.get_current_active_user),
+    db: Session = Depends(deps.get_db)
 ) -> Any:
     """
     Retrieve departments.
@@ -30,7 +29,7 @@ def create_department(
     *,
     db: Session = Depends(deps.get_db),
     department_in: DepartmentCreate,
-    current_user: User = Depends(deps.get_current_active_user),
+    current_user: User = Depends(deps.RoleChecker(["admin"])),
 ) -> Any:
     """
     Create new department.
@@ -61,7 +60,7 @@ def delete_department(
     *,
     db: Session = Depends(deps.get_db),
     department_id: int,
-    current_user: User = Depends(deps.get_current_active_user),
+    current_user: User = Depends(deps.RoleChecker(["admin"])),
 ) -> Any:
     """
     Delete a department.
@@ -92,7 +91,7 @@ def delete_department(
 def get_department_stats(
     department_id: int,
     db: Session = Depends(deps.get_db),
-    current_user: User = Depends(deps.get_current_active_user),
+    current_user: User = Depends(deps.RoleChecker(["admin"])),
 ) -> Any:
     """
     Get statistics for a specific department.

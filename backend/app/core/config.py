@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     QDRANT_PORT: int = 6333
     QDRANT_COLLECTION: str = "maikms_documents"
     
+    # Ollama
+    OLLAMA_API_URL: str = "http://localhost:11434/api/generate"
+    
+    # Qdrant mode: True = local file storage, False = remote server
+    USE_LOCAL_QDRANT: bool = True
+    
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
 
 settings = Settings()

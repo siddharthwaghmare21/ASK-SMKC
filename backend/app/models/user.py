@@ -43,3 +43,9 @@ class User(Base):
     
     # Relationships
     roles = relationship("UserRole", foreign_keys="[UserRole.user_id]", back_populates="user")
+    
+    @property
+    def role(self):
+        if self.roles and len(self.roles) > 0:
+            return self.roles[0].role.name
+        return "user"

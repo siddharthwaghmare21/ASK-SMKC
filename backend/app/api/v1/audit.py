@@ -26,7 +26,7 @@ def get_audit_logs(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(deps.get_db),
-    current_user: User = Depends(deps.RoleChecker(["Admin", "Super Admin"])),
+    current_user: User = Depends(deps.RoleChecker(["admin"])),
 ) -> Any:
     """Get all audit logs, joined with user for username."""
     logs = (

@@ -61,11 +61,22 @@ def register_user(
     db.add(user)
     db.commit()
     db.refresh(user)
+
+    from app.models.role import Role
+    from app.models.user import UserRole
+    role_name = getattr(user_in, "role_name", "user")
+    role = db.query(Role).filter(Role.name == role_name).first()
+    if role:
+        user_role = UserRole(user_id=user.id, role_id=role.id)
+        db.add(user_role)
+        db.commit()
+        db.refresh(user)
     return user
 
 @router.get("/me", response_model=UserSchema)
 def read_users_me(
     current_user: User = Depends(deps.get_current_active_user),
+    db: Session = Depends(deps.get_db)
 ) -> Any:
     """
     Get current user.

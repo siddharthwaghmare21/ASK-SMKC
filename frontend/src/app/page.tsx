@@ -3,7 +3,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User as UserIcon, Loader2, BookOpen, Building2, Zap, Mic, Volume2, Plus, MessageSquare, Trash2, Copy, Edit2, Check, X, Menu } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import api from '../../../utils/api';
+import api from '../utils/api';
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
 export default function ChatPage() {
   const [sessions, setSessions] = useState([]);
@@ -13,9 +15,7 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   
-  // Department state
-  const [departments, setDepartments] = useState([]);
-  const [selectedDepartmentId, setSelectedDepartmentId] = useState('');
+
   
   // Voice state
   const [isListening, setIsListening] = useState(false);
@@ -29,18 +29,8 @@ export default function ChatPage() {
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
-    fetchDepartments();
     loadSessions();
   }, []);
-
-  const fetchDepartments = async () => {
-    try {
-      const res = await api.get('/departments/');
-      setDepartments(res.data);
-    } catch (e) {
-      console.error("Failed to fetch departments");
-    }
-  };
 
   const loadSessions = async () => {
     try {
@@ -122,7 +112,7 @@ export default function ChatPage() {
       return;
     }
     
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     const recognition = new SpeechRecognition();
     recognition.lang = 'en-IN';
     recognition.interimResults = true;
@@ -168,6 +158,45 @@ export default function ChatPage() {
     scrollToBottom();
   }, [messages, loading]);
 
+  const processStream = async (res, initialMsgId) => {
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let done = false;
+    let accumulatedText = "";
+    let aiMsgId = initialMsgId;
+
+    while (!done) {
+      const { value, done: readerDone } = await reader.read();
+      done = readerDone;
+      if (value) {
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.substring(6).trim();
+            if (dataStr) {
+              try {
+                const data = JSON.parse(dataStr);
+                if (data.type === 'init') {
+                  const newId = data.id.toString();
+                  setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, id: newId } : m));
+                  aiMsgId = newId;
+                } else if (data.type === 'chunk') {
+                  accumulatedText += data.text;
+                  setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, content: accumulatedText } : m));
+                } else if (data.type === 'citations') {
+                  setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, citations: data.data } : m));
+                }
+              } catch (e) {
+                console.error("Error parsing stream chunk", e);
+              }
+            }
+          }
+        }
+      }
+    }
+  };
+
   const handleSend = async (e) => {
     if (e) e.preventDefault();
     if (!input.trim() || !sessionId || loading) return;
@@ -177,7 +206,6 @@ export default function ChatPage() {
     setInput('');
     setLoading(true);
 
-    // Auto-update title if it's the first message
     if (messages.length === 0) {
       api.put(`/chat/sessions/${sessionId}`, { title: input.substring(0, 30) + "..." })
         .then(() => loadSessions());
@@ -186,24 +214,28 @@ export default function ChatPage() {
     try {
       const payload = {
         content: userMsg.content,
-        department_id: selectedDepartmentId ? parseInt(selectedDepartmentId) : null
+        department_id: null
       };
-      const res = await api.post(`/chat/sessions/${sessionId}/messages`, payload);
-      
-      let parsedCitations = [];
-      try {
-        if (res.data.citations) parsedCitations = JSON.parse(res.data.citations);
-      } catch (e) {}
 
-      const aiMsg = {
-        id: res.data.id.toString(),
-        role: 'ai',
-        content: res.data.content,
-        citations: parsedCitations
-      };
-      setMessages(prev => [...prev, aiMsg]);
+      const aiMsgId = "temp-ai-" + Date.now();
+      
+      // Add empty AI message placeholder
+      setMessages(prev => [...prev, { id: aiMsgId, role: 'ai', content: '', citations: [] }]);
+
+      const res = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+      
+      if (!res.ok) throw new Error("Failed to send message");
+      
+      await processStream(res, aiMsgId);
+      
     } catch (error) {
-      setMessages(prev => [...prev, { id: Date.now().toString(), role: 'ai', content: 'Error: Could not reach the AI service.' }]);
+      setMessages(prev => prev.map(m => m.id.startsWith("temp-ai") ? { ...m, content: 'Error: Could not reach the AI service.' } : m));
     } finally {
       setLoading(false);
     }
@@ -213,6 +245,7 @@ export default function ChatPage() {
     if (!editContent.trim() || loading) return;
     setEditingMsgId(null);
     setLoading(true);
+    
     try {
       // Optimistically update UI
       const msgIndex = messages.findIndex(m => m.id === msgId);
@@ -222,31 +255,38 @@ export default function ChatPage() {
 
       const payload = {
         content: editContent,
-        department_id: selectedDepartmentId ? parseInt(selectedDepartmentId) : null
+        department_id: null
       };
-      const res = await api.put(`/chat/sessions/${sessionId}/messages/${msgId}`, payload);
-      
-      let parsedCitations = [];
-      try { if (res.data.citations) parsedCitations = JSON.parse(res.data.citations); } catch (e) {}
 
-      const aiMsg = {
-        id: res.data.id.toString(),
-        role: 'ai',
-        content: res.data.content,
-        citations: parsedCitations
-      };
-      setMessages(prev => [...prev, aiMsg]);
+      const aiMsgId = "temp-ai-" + Date.now();
+      
+      // Add empty AI message placeholder
+      setMessages(prev => [...prev, { id: aiMsgId, role: 'ai', content: '', citations: [] }]);
+
+      const res = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/messages/${msgId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+      
+      if (!res.ok) throw new Error("Failed to edit message");
+      
+      await processStream(res, aiMsgId);
+      
     } catch (e) {
       console.error("Failed to edit", e);
+      setMessages(prev => prev.map(m => m.id.startsWith("temp-ai") ? { ...m, content: 'Error: Could not reach the AI service.' } : m));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="flex h-full bg-white dark:bg-slate-900 relative overflow-hidden">
+    <div className="flex min-h-screen bg-white dark:bg-slate-900 relative">
       {/* Sidebar */}
-      <div className={`${isSidebarOpen ? 'w-64' : 'w-0'} flex-shrink-0 transition-all duration-300 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden`}>
+      <div className={`${isSidebarOpen ? 'w-64' : 'w-0'} sticky top-0 h-screen flex-shrink-0 transition-all duration-300 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden`}>
         <div className="p-4">
           <button 
             onClick={createNewChat}
@@ -255,7 +295,7 @@ export default function ChatPage() {
             <Plus className="w-4 h-4" /> New Chat
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto px-2 pb-4 space-y-1">
+        <div className="flex-1 overflow-y-auto px-2 pb-4 space-y-1 custom-scrollbar">
           {sessions.map(session => (
             <div 
               key={session.id}
@@ -314,7 +354,7 @@ export default function ChatPage() {
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col min-w-0">
-        <div className="border-b border-slate-100 dark:border-slate-800 p-4 flex justify-between items-center bg-white dark:bg-slate-900 z-10 transition-colors">
+        <div className="sticky top-0 z-50 border-b border-slate-100 dark:border-slate-800 p-4 flex justify-between items-center bg-white dark:bg-slate-900 transition-colors">
           <div className="flex items-center gap-3">
             <button 
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -331,22 +371,10 @@ export default function ChatPage() {
             </div>
           </div>
           
-          <div className="flex items-center gap-2">
-            <Building2 className="w-4 h-4 text-slate-500 dark:text-slate-400" />
-            <select 
-              value={selectedDepartmentId}
-              onChange={(e) => setSelectedDepartmentId(e.target.value)}
-              className="text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700 dark:text-slate-200 max-w-[120px] sm:max-w-none"
-            >
-              <option value="">All Departments</option>
-              {departments.map(dep => (
-                <option key={dep.id} value={dep.id}>{dep.name}</option>
-              ))}
-            </select>
-          </div>
+
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50/50 dark:bg-slate-900/50 transition-colors">
+        <div className="flex-1 p-4 sm:p-6 bg-slate-50/50 dark:bg-slate-900/50 transition-colors">
           <div className="max-w-4xl mx-auto space-y-6">
             {messages.length === 0 && (
               <div className="text-center py-20">

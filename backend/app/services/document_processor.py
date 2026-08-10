@@ -9,18 +9,64 @@ def clean_text(text: str) -> str:
     return text.strip()
 
 import numpy as np
-import easyocr
+import pytesseract
+from PIL import Image, ImageEnhance, ImageFilter
+
+# Lazy-loaded EasyOCR reader (only initialized if Tesseract fails)
+_easyocr_reader = None
+
+def _get_easyocr_reader():
+    """Lazy-load EasyOCR reader to avoid slow startup."""
+    global _easyocr_reader
+    if _easyocr_reader is None:
+        import easyocr
+        _easyocr_reader = easyocr.Reader(['mr', 'hi', 'en'], gpu=False)
+    return _easyocr_reader
+
+def _preprocess_image_for_ocr(img: Image.Image) -> Image.Image:
+    """
+    Preprocess a PIL Image for better OCR accuracy on scanned documents.
+    Applies grayscale conversion, contrast enhancement, sharpening, and binarization.
+    """
+    # Convert to grayscale
+    img = img.convert('L')
+    # Enhance contrast
+    enhancer = ImageEnhance.Contrast(img)
+    img = enhancer.enhance(2.0)
+    # Sharpen
+    img = img.filter(ImageFilter.SHARPEN)
+    # Binarize (Otsu-like threshold)
+    img = img.point(lambda x: 0 if x < 128 else 255, '1')
+    return img
+
+def _ocr_with_tesseract(img: Image.Image) -> str:
+    """Run Tesseract OCR on a PIL Image with Marathi + Hindi + English support."""
+    try:
+        # Use mar+hin+eng for Devanagari script support
+        text = pytesseract.image_to_string(img, lang='mar+hin+eng', config='--psm 6')
+        return text
+    except Exception as e:
+        print(f"Tesseract OCR failed: {e}")
+        return ""
+
+def _ocr_with_easyocr(img_np: np.ndarray) -> str:
+    """Run EasyOCR on a numpy array image."""
+    try:
+        reader = _get_easyocr_reader()
+        result = reader.readtext(img_np, detail=0)
+        return " ".join(result)
+    except Exception as e:
+        print(f"EasyOCR failed: {e}")
+        return ""
 
 def extract_text_from_pdf(file_path: str) -> List[Dict[str, Any]]:
     """
     Extracts text page by page from a PDF using PyMuPDF.
     If the text is too short (likely scanned), falls back to EasyOCR.
-    Returns a list of dicts with page number and text.
     """
     pages = []
     try:
         doc = fitz.open(file_path)
-        reader = None
         
         for page_num in range(len(doc)):
             page = doc.load_page(page_num)
@@ -30,19 +76,18 @@ def extract_text_from_pdf(file_path: str) -> List[Dict[str, Any]]:
             # Fallback to OCR if less than 50 characters are extracted
             if len(cleaned_text) < 50:
                 print(f"Page {page_num + 1} of {file_path} seems scanned. Using OCR...")
-                if reader is None:
-                    reader = easyocr.Reader(['mr', 'hi', 'en'], gpu=False)
                 
-                # Render page to an image (200 DPI is usually sufficient for OCR)
-                pix = page.get_pixmap(dpi=200)
-                # Convert to numpy array
-                img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.h, pix.w, pix.n)
-                if pix.n == 4: # Convert RGBA to RGB
-                    img = img[:, :, :3]
-                    
-                result = reader.readtext(img, detail=0)
-                ocr_text = " ".join(result)
+                # Render page to an image (300 DPI for better OCR accuracy)
+                pix = page.get_pixmap(dpi=300)
+                # Convert to PIL Image
+                pil_img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                
+                print(f"  Running EasyOCR...")
+                # Convert original image to numpy for EasyOCR
+                img_np = np.array(pil_img)
+                ocr_text = _ocr_with_easyocr(img_np)
                 cleaned_text = clean_text(ocr_text)
+                print(f"  EasyOCR produced {len(cleaned_text)} chars.")
                 
             pages.append({
                 "page_number": page_num + 1,
